@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATEM Director - Control Room Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body x-data="dashboardApp()" @load="initWebSocket()">
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div class="status-item">
+      <span class="label">ATEM:</span>
+      <span class="value" :class="{'connected': isConnected, 'disconnected': !isConnected}">
+        <template x-if="isConnected">Connected</template>
+        <template x-if="!isConnected">Disconnected</template>
+      </span>
+    </div>
+    <div class="status-item">
+      <span class="label">IP:</span>
+      <span class="value" x-text="atemIp"></span>
+    </div>
+    <div class="status-item">
+      <span class="label">Program:</span>
+      <span class="value" x-text="`CAM ${state.program_input}`"></span>
+    </div>
+    <div class="status-item">
+      <span class="label">Preview:</span>
+      <span class="value" x-text="`CAM ${state.preview_input}`"></span>
+    </div>
+    <div class="status-item">
+      <span class="label">Transition:</span>
+      <span class="value" x-text="state.transition_mode?.toUpperCase()"></span>
+    </div>
+    <div class="status-item">
+      <span class="label">Mode:</span>
+      <span class="value" x-text="switchMode"></span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="dashboard-grid">
+    
+    <!-- Left Column: Countdown Panel -->
+    <div class="panel countdown-panel">
+      <h2>COUNTDOWN</h2>
+      <div class="countdown-display">
+        <div class="current-camera">CAM <span x-text="state.program_input"></span></div>
+        <div class="countdown-timer" x-text="formatCountdown(countdown)"></div>
+        <div class="next-info">
+          <template x-if="state.engine_state?.next_input">
+            <div>Next: CAM <span x-text="state.engine_state.next_input"></span></div>
+          </template>
+        </div>
+        <div class="engine-status">
+          <span class="status-badge" :class="state.engine_state?.state?.toLowerCase()">
+            <span x-text="state.engine_state?.state"></span>
+          </span>
+          <template x-if="state.engine_state?.locked">
+            <span class="status-badge locked">LOCKED</span>
+          </template>
+          <template x-if="state.engine_state?.hold">
+            <span class="status-badge hold">HOLD</span>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Grid -->
+    <div class="panel input-grid-panel">
+      <h2>INPUTS</h2>
+      <div class="input-grid">
+        <template x-for="input in [1,2,3,4,5,6,7,8]" :key="input">
+          <div class="input-card" :class="{
+            'has-signal': getInputSignal(input),
+            'program': state.program_input === input,
+            'preview': state.preview_input === input,
+            'enabled': isInputEnabled(input),
+            'disabled': !isInputEnabled(input),
+            'safe': safeCamera === input,
+            'locked': isInputLocked(input),
+            'cooldown': isInCooldown(input)
+          }">
+            <div class="input-number">CAM <span x-text="input"></span></div>
+            <div class="input-signal" :class="getInputSignal(input) ? 'signal-ok' : 'signal-none'">
+              <span x-text="getInputSignal(input) ? 'SIGNAL' : 'NO SIGNAL'"></span>
+            </div>
+            <div class="input-status">
+              <span class="badge" x-text="isInputEnabled(input) ? 'ENABLED' : 'DISABLED'"></span>
+            </div>
+            <div class="input-markers">
+              <template x-if="state.program_input === input">
+                <span class="marker program-marker">PGM</span>
+              </template>
+              <template x-if="state.preview_input === input">
+                <span class="marker preview-marker">PVW</span>
+              </template>
+              <template x-if="safeCamera === input">
+                <span class="marker safe-marker">SAFE</span>
+              </template>
+            </div>
+            <div class="input-controls">
+              <button @click="toggleInputEnabled(input)" class="btn btn-sm">
+                <span x-text="isInputEnabled(input) ? 'Disable' : 'Enable'"></span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Right Column: Controls -->
+    <div class="panel controls-panel">
+      <h2>CONTROLS</h2>
+      <div class="button-grid">
+        <button @click="sendControl('start')" class="btn btn-large btn-primary">START</button>
+        <button @click="sendControl('stop')" class="btn btn-large btn-danger">STOP</button>
+        <button @click="sendControl('skip-current')" class="btn">SKIP</button>
+        <button @click="sendControl('skip-next')" class="btn">SKIP NEXT</button>
+        <button @click="sendControl('extend', 30)" class="btn">+30s</button>
+        <button @click="sendControl('extend', 60)" class="btn">+1m</button>
+        <button @click="sendControl('hold-current')" class="btn">HOLD</button>
+        <button @click="showLockModal()" class="btn">LOCK</button>
+        <button @click="sendControl('release-lock')" class="btn">RELEASE</button>
+        <button @click="sendControl('panic-cut')" class="btn btn-panic">PANIC CUT</button>
+        <button @click="sendControl('reconnect-atem')" class="btn">RECONNECT</button>
+      </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="panel settings-panel">
+      <h2>SETTINGS</h2>
+      <div class="settings-form">
+        <div class="form-group">
+          <label>Transition Mode:</label>
+          <select @change="updateTransitionMode($event)">
+            <option value="cut" :selected="state.transition_mode === 'cut'">CUT</option>
+            <option value="mix" :selected="state.transition_mode === 'mix'">MIX</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Mix Duration (ms):</label>
+          <input type="number" @change="updateMixDuration($event)" :value="state.transition_duration_ms" min="1" max="5000">
+        </div>
+        <div class="form-group">
+          <label>Switch Mode:</label>
+          <select @change="updateSwitchMode($event)">
+            <option value="balanced_random">Balanced Random</option>
+            <option value="pure_random">Pure Random</option>
+            <option value="weighted_random">Weighted</option>
+            <option value="round_robin_random">Round Robin</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Safe Camera:</label>
+          <select @change="updateSafeCamera($event)">
+            <option value="">None</option>
+            <template x-for="cam in [1,2,3,4,5,6,7,8]" :key="cam">
+              <option :value="cam" :selected="safeCamera === cam" x-text="`CAM ${cam}`"></option>
+            </template>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Statistics Panel -->
+    <div class="panel statistics-panel">
+      <h2>STATISTICS</h2>
+      <div class="stats-content">
+        <div class="stat-item">
+          <span class="label">Session Switches:</span>
+          <span class="value" x-text="sessionStats?.total_switches || 0"></span>
+        </div>
+        <div class="stat-item">
+          <span class="label">Duration:</span>
+          <span class="value" x-text="formatDuration(sessionStats?.total_duration_seconds || 0)"></span>
+        </div>
+        <div class="stat-item">
+          <span class="label">Avg Hold:</span>
+          <span class="value" x-text="formatDuration(sessionStats?.average_hold_seconds || 0)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Log Panel -->
+    <div class="panel event-log-panel">
+      <h2>EVENT LOG</h2>
+      <div class="event-log">
+        <template x-for="event in recentEvents.slice(0, 10)" :key="event.id">
+          <div class="event-item">
+            <span class="event-time" x-text="formatTime(event.created_at)"></span>
+            <span class="event-type" :class="event.event_type" x-text="event.event_type.toUpperCase()"></span>
+            <template x-if="event.from_input && event.to_input">
+              <span class="event-detail" x-text="`CAM ${event.from_input} → CAM ${event.to_input}`"></span>
+            </template>
+            <template x-if="event.reason">
+              <span class="event-reason" x-text="event.reason"></span>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Lock Modal -->
+  <div class="modal" x-show="showModal" x-cloak>
+    <div class="modal-content">
+      <h3>Lock Current Camera</h3>
+      <div class="form-group">
+        <label>Lock Duration (seconds):</label>
+        <input type="number" x-model="lockDuration" min="10" max="3600">
+      </div>
+      <div class="modal-buttons">
+        <button @click="sendControl('lock-current', lockDuration)" class="btn btn-primary">LOCK</button>
+        <button @click="showModal = false" class="btn">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
