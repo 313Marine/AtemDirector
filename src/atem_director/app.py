@@ -2,6 +2,8 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 
 from atem_director.config import Settings
 from atem_director.logging import configure_logging, get_logger
@@ -11,6 +13,7 @@ from atem_director.atem_layer.manager import ATEMManager
 from atem_director.engine.switching import SwitchingEngine
 from atem_director.services.runtime import ApplicationOrchestrator
 from atem_director.api import router as api_router
+from atem_director.api import dashboard
 
 logger = get_logger(__name__)
 
@@ -102,7 +105,15 @@ def create_app(settings: Settings) -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Include routers
+    # Mount static files
+    static_dir = os.path.join(os.path.dirname(__file__), "../../static")
+    if os.path.isdir(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    
+    # Include dashboard route
+    app.include_router(dashboard.router, tags=["dashboard"])
+    
+    # Include API routers
     app.include_router(api_router.router, prefix="/api/v1")
     
     logger.info("FastAPI application created", debug=settings.debug)
