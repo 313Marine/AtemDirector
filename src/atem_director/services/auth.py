@@ -2,16 +2,13 @@
 from datetime import datetime, timedelta
 from typing import Optional
 import bcrypt
-from passlib.context import CryptContext
-from python_jose import JWTError, jwt
+from jose import JWTError, jwt
 
 from atem_director.config import get_settings
 from atem_director.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class AuthService:
@@ -30,7 +27,8 @@ class AuthService:
         Returns:
             Hashed password
         """
-        return pwd_context.hash(password)
+        salt = bcrypt.gensalt()
+        return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
     
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash.
@@ -42,7 +40,7 @@ class AuthService:
         Returns:
             True if password matches, False otherwise
         """
-        return pwd_context.verify(plain_password, hashed_password)
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
     
     def create_access_token(self, user_id: int, expires_delta: Optional[timedelta] = None) -> str:
         """Create JWT access token.

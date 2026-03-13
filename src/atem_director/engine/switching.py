@@ -410,7 +410,7 @@ class SwitchingEngine:
             event: The event to handle
             **kwargs: Event-specific arguments
         """
-        logger.debug("Handling switching event", event=event.value, state=self._state.value)
+        logger.debug("Handling switching event", evt=event.value, state=self._state.value)
         
         if event == SwitchingEvent.START:
             self._handle_start()
@@ -544,8 +544,8 @@ class SwitchingEngine:
     
     def _handle_lock_current(self, duration_ms: int) -> None:
         """Handle LOCK_CURRENT event."""
-        if self._state == SwitchingState.IDLE:
-            logger.warning("Cannot lock - not running")
+        if self._current_input == 0:
+            logger.warning("Cannot lock - no current input")
             return
         
         locked_until = datetime.now() + timedelta(milliseconds=duration_ms)
@@ -670,16 +670,19 @@ class SwitchingEngine:
             if not state.operator_enabled:
                 continue
             
-            # Check repeat rule (avoid same input unless it's the only option)
+            # Tentatively exclude the current input to avoid repeats;
+            # we will add it back below if nothing else is available.
             if self.config.avoid_repeat_same_input and input_idx == self._current_input:
-                # Check cooldown
-                if state.last_switched_at:
-                    time_since = (now - state.last_switched_at).total_seconds() * 1000
-                    if time_since < self.config.same_input_cooldown_ms:
-                        continue
-            
+                continue
+
             eligible.append(input_idx)
-        
+
+        # Fallback: if no alternatives exist, allow the current input to repeat.
+        if not eligible and self._current_input in self._input_states:
+            current_state = self._input_states[self._current_input]
+            if current_state.has_signal and current_state.operator_enabled:
+                eligible.append(self._current_input)
+
         return eligible
     
     def _schedule_next_switch(self) -> None:
@@ -810,6 +813,28 @@ class SwitchingEngine:
             eligible_inputs=self._get_eligible_inputs(),
         )
     
+    # ------------------------------------------------------------------
+    # Convenience methods (used by ApplicationOrchestrator)
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Convenience: fire the START event to begin auto-switching."""
+        self.handle_event(SwitchingEvent.START)
+
+    def stop(self) -> None:
+        """Convenience: fire the STOP event to halt auto-switching."""
+        self.handle_event(SwitchingEvent.STOP)
+
+    def on_state_change(self, callback) -> None:
+        """Alias for register_state_callback (matches orchestrator API)."""
+        self.register_state_callback(callback)
+
+    def on_switch(self, callback) -> None:
+        """Alias for register_switch_callback (matches orchestrator API)."""
+        self.register_switch_callback(callback)
+
+    # ------------------------------------------------------------------
+
     def register_switch_callback(self, callback: Callable[[int, int], None]) -> None:
         """Register callback for switch events.
         

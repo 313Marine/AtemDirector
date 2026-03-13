@@ -434,7 +434,7 @@ class SwitchingEventRepository:
         hold_duration_seconds: Optional[float] = None,
         is_success: bool = True,
         error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        event_metadata: Optional[Dict[str, Any]] = None,
     ) -> SwitchingEvent:
         """Create switching event.
         
@@ -446,7 +446,7 @@ class SwitchingEventRepository:
             hold_duration_seconds: Duration held
             is_success: Was successful
             error_message: Error if applicable
-            metadata: Extra data (as dict, will be JSON-serialized)
+            event_metadata: Extra data (as dict, will be JSON-serialized)
             
         Returns:
             Created event
@@ -459,7 +459,7 @@ class SwitchingEventRepository:
             hold_duration_seconds=hold_duration_seconds,
             is_success=is_success,
             error_message=error_message,
-            metadata=json.dumps(metadata) if metadata else None,
+            event_metadata=json.dumps(event_metadata) if event_metadata else None,
         )
         
         self.session.add(event)

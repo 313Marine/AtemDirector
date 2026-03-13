@@ -86,7 +86,7 @@ class ChangeATEMIPRequest(BaseModel):
 
 class ChangeTransitionModeRequest(BaseModel):
     """Change transition mode request."""
-    mode: str = Field(..., regex="^(cut|mix)$")
+    mode: str = Field(..., pattern="^(cut|mix)$")
 
 
 class ChangeMixDurationRequest(BaseModel):
@@ -107,7 +107,7 @@ class SetSafeCameraRequest(BaseModel):
 
 class SetSwitchModeRequest(BaseModel):
     """Set switching mode request."""
-    mode: str = Field(..., regex="^(pure_random|balanced_random|weighted_random|round_robin_random)$")
+    mode: str = Field(..., pattern="^(pure_random|balanced_random|weighted_random|round_robin_random)$")
 
 
 class SetCameraWeightRequest(BaseModel):
@@ -158,7 +158,7 @@ class PresetRequest(BaseModel):
     description: Optional[str] = None
     program_input: int = Field(..., ge=1, le=32)
     preview_input: int = Field(..., ge=1, le=32)
-    transition_mode: str = Field("cut", regex="^(cut|mix)$")
+    transition_mode: str = Field("cut", pattern="^(cut|mix)$")
     transition_duration_ms: int = Field(300, ge=1, le=5000)
     enabled_inputs: Optional[List[int]] = None
     switch_mode: Optional[str] = None

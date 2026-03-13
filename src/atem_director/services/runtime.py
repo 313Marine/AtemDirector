@@ -39,12 +39,18 @@ from atem_director.atem_layer.models import (
     ConnectionState,
     SwitcherState,
     TransitionMode,
+    InputSourceSignal,
 )
 from atem_director.engine.switching import (
     SwitchingEngine,
+    SwitchingConfig,
     SwitchingState,
     SwitchingEvent,
     SwitchMode,
+    PureRandomMode,
+    BalancedRandomMode,
+    WeightedRandomMode,
+    RoundRobinRandomMode,
 )
 from atem_director.persistence.storage import StorageManager
 from atem_director.runtime.state import (
@@ -128,11 +134,17 @@ class ApplicationOrchestrator:
             
             # Initialize switching engine
             logger.info("Initializing switching engine")
+            switch_mode = self._parse_switch_mode(app_config.auto_switch_mode)
+            engine_config = SwitchingConfig()
             self.switching_engine = SwitchingEngine(
-                enabled_inputs=list(range(1, 9)),  # Inputs 1-8
-                safe_camera=app_config.safe_camera,
-                switch_mode=self._parse_switch_mode(app_config.auto_switch_mode),
+                config=engine_config,
+                switch_mode=switch_mode,
             )
+            # Seed input states for inputs 1-8
+            for _i in range(1, 9):
+                self.switching_engine.handle_event(
+                    SwitchingEvent.INPUT_ENABLED, input_index=_i
+                )
             
             async with self._state_lock:
                 self.state.switching_engine = self.switching_engine
@@ -601,7 +613,7 @@ class ApplicationOrchestrator:
                     enabled=operator_state.enabled if operator_state else True,
                     is_current_program=i == switcher_state.program_input,
                     is_current_preview=i == switcher_state.preview_input,
-                    has_signal=switcher_state.input_signals.get(i, {}).has_signal,
+                    has_signal=switcher_state.input_signals.get(i, InputSourceSignal(input_index=i)).has_signal,
                 )
     
     async def _record_switch(
@@ -650,11 +662,11 @@ class ApplicationOrchestrator:
     
     @staticmethod
     def _parse_switch_mode(mode_str: str) -> SwitchMode:
-        """Parse switch mode string to enum."""
+        """Parse switch mode string to a concrete SwitchMode instance."""
         mode_map = {
-            "pure_random": SwitchMode.PURE_RANDOM,
-            "balanced_random": SwitchMode.BALANCED_RANDOM,
-            "weighted_random": SwitchMode.WEIGHTED_RANDOM,
-            "round_robin_random": SwitchMode.ROUND_ROBIN_RANDOM,
+            "pure_random": PureRandomMode(),
+            "balanced_random": BalancedRandomMode(),
+            "weighted_random": WeightedRandomMode(),
+            "round_robin_random": RoundRobinRandomMode(),
         }
-        return mode_map.get(mode_str, SwitchMode.BALANCED_RANDOM)
+        return mode_map.get(mode_str, BalancedRandomMode())

@@ -42,7 +42,7 @@ class AuthConfig(BaseSettings):
 
 class Settings(BaseSettings):
     """Application settings."""
-    env: Literal["development", "staging", "production"] = "development"
+    env: Literal["development", "staging", "production", "test", "testing"] = "development"
     debug: bool = False
     
     atem: ATEMConfig = ATEMConfig()
