@@ -6,8 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from atem_director.config import Settings
 from atem_director.logging import configure_logging, get_logger
 from atem_director.persistence.database import init_db, close_db
-from atem_director.api import router as api_router
+from atem_director.persistence.storage import StorageManager
 from atem_director.atem_layer.manager import ATEMManager
+from atem_director.engine.switching import SwitchingEngine
+from atem_director.services.runtime import ApplicationOrchestrator
+from atem_director.api import router as api_router
 
 logger = get_logger(__name__)
 
@@ -20,16 +23,42 @@ async def startup(app: FastAPI, settings: Settings) -> None:
     await init_db(settings.database.url)
     logger.info("Database initialized")
     
+    # Initialize storage manager
+    storage_manager = StorageManager()
+    app.state.storage_manager = storage_manager
+    logger.info("Storage manager initialized")
+    
     # Initialize ATEM manager
     atem_manager = ATEMManager(settings.atem)
     app.state.atem_manager = atem_manager
     await atem_manager.connect()
     logger.info("ATEM connection established", host=settings.atem.host)
+    
+    # Initialize switching engine
+    switching_engine = SwitchingEngine()
+    app.state.switching_engine = switching_engine
+    logger.info("Switching engine initialized")
+    
+    # Initialize orchestrator
+    orchestrator = ApplicationOrchestrator(
+        atem_manager=atem_manager,
+        switching_engine=switching_engine,
+        storage_manager=storage_manager,
+        settings=settings,
+    )
+    app.state.orchestrator = orchestrator
+    await orchestrator.initialize()
+    logger.info("Application orchestrator initialized")
 
 
 async def shutdown(app: FastAPI) -> None:
     """Application shutdown handler."""
     logger.info("Shutting down ATEM Director application")
+    
+    # Shutdown orchestrator
+    orchestrator: ApplicationOrchestrator = app.state.orchestrator
+    await orchestrator.shutdown()
+    logger.info("Orchestrator shut down")
     
     # Close ATEM connection
     atem_manager: ATEMManager = app.state.atem_manager
