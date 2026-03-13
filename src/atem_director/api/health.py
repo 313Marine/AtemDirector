@@ -11,11 +11,16 @@ router = APIRouter()
 @router.get("/health")
 async def health_check(request: Request) -> dict:
     """Health check endpoint."""
-    atem_manager = request.app.state.atem_manager
-    
+    # atem_manager is owned by the orchestrator
+    orchestrator = getattr(request.app.state, 'orchestrator', None)
+    atem_connected = (
+        orchestrator.atem_manager.is_connected
+        if orchestrator and hasattr(orchestrator, 'atem_manager')
+        else False
+    )
     return {
         "status": "ok",
-        "atem_connected": atem_manager.is_connected,
+        "atem_connected": atem_connected,
         "version": "0.1.0",
     }
 

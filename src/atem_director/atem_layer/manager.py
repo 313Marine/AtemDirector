@@ -35,7 +35,15 @@ from atem_director.atem_layer.models import (
 logger = get_logger(__name__)
 
 # Type aliases
+
 ConnectionCallback = Callable[[ConnectionState], Any]
+
+
+class _ConnectionStateHolder:
+    """Thin wrapper so tests can access manager._state.state."""
+    __slots__ = ('state',)
+    def __init__(self, state: ConnectionState) -> None:
+        self.state = state
 StateChangeCallback = Callable[[SwitcherState], Any]
 
 
@@ -279,7 +287,7 @@ class PyATEMAdapter(ATEMProtocolAdapter):
     async def set_program_input(self, input_index: int) -> None:
         """Set program input."""
         if not self.connection:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         try:
             logger.info("Setting program input", input_index=input_index)
@@ -291,7 +299,7 @@ class PyATEMAdapter(ATEMProtocolAdapter):
     async def set_preview_input(self, input_index: int) -> None:
         """Set preview input."""
         if not self.connection:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         try:
             logger.info("Setting preview input", input_index=input_index)
@@ -303,7 +311,7 @@ class PyATEMAdapter(ATEMProtocolAdapter):
     async def set_transition_mode(self, mode: TransitionMode) -> None:
         """Set transition mode."""
         if not self.connection:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         try:
             logger.info("Setting transition mode", mode=mode.value)
@@ -315,7 +323,7 @@ class PyATEMAdapter(ATEMProtocolAdapter):
     async def set_mix_duration(self, duration_ms: int) -> None:
         """Set mix duration."""
         if not self.connection:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         try:
             logger.info("Setting mix duration", duration_ms=duration_ms)
@@ -327,7 +335,7 @@ class PyATEMAdapter(ATEMProtocolAdapter):
     async def perform_cut(self) -> None:
         """Perform immediate cut."""
         if not self.connection:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         try:
             logger.info("Performing panic cut")
@@ -386,7 +394,8 @@ class ATEMManager:
         self.adapter = adapter or PyATEMAdapter()
         
         # State tracking
-        self._state = ConnectionState.DISCONNECTED
+        self._state = _ConnectionStateHolder(ConnectionState.DISCONNECTED)
+        self._is_connected: bool = False
         self._status = ATEMStatus()
         self._switcher_state = SwitcherState()
         self._metrics = ConnectionMetrics()
@@ -415,7 +424,7 @@ class ATEMManager:
         while attempt < self.config.reconnect_attempts:
             try:
                 async with self._state_lock:
-                    if self._state == ConnectionState.CONNECTED:
+                    if self._state.state == ConnectionState.CONNECTED:
                         logger.info("Already connected to ATEM device")
                         return
                     
@@ -517,7 +526,8 @@ class ATEMManager:
         
         async with self._state_lock:
             self._set_state_internal(ConnectionState.DISCONNECTED)
-        
+            self._is_connected = False  # always clear, regardless of prior state
+
         logger.info("Disconnected from ATEM device")
         await self._notify_connection_callbacks(ConnectionState.DISCONNECTED)
     
@@ -550,7 +560,7 @@ class ATEMManager:
     async def get_status(self) -> ATEMStatus:
         """Get current ATEM device status."""
         async with self._state_lock:
-            self._status.state = self._state
+            self._status.state = self._state.state
             self._status.connection_attempts = self._metrics.total_attempts
             self._status.last_error = self._metrics.last_error
             return self._status.model_copy()
@@ -571,7 +581,7 @@ class ATEMManager:
             ValueError: If input index is invalid
         """
         if not self.is_connected:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         if input_index < 0 or input_index > self._status.inputs_count:
             raise ValueError(
@@ -603,7 +613,7 @@ class ATEMManager:
             ValueError: If input index is invalid
         """
         if not self.is_connected:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         if input_index < 0 or input_index > self._status.inputs_count:
             raise ValueError(
@@ -631,7 +641,7 @@ class ATEMManager:
             mode: TransitionMode.CUT or TransitionMode.MIX
         """
         if not self.is_connected:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         # Check capability
         if mode == TransitionMode.MIX:
@@ -662,7 +672,7 @@ class ATEMManager:
             ValueError: If duration is outside supported range
         """
         if not self.is_connected:
-            raise RuntimeError("Not connected to ATEM device")
+            raise RuntimeError("not connected to ATEM device")
         
         # Validate against device capabilities
         caps = self._status.capabilities
@@ -779,9 +789,10 @@ class ATEMManager:
     
     def _set_state_internal(self, state: ConnectionState) -> None:
         """Set connection state (must be called with lock held)."""
-        if self._state != state:
-            logger.debug("Connection state changed", from_state=self._state.value, to_state=state.value)
-            self._state = state
+        if self._state.state != state:
+            logger.debug("Connection state changed", from_state=self._state.state.value, to_state=state.value)
+            self._state.state = state
+            self._is_connected = (state == ConnectionState.CONNECTED)
     
     async def _notify_connection_callbacks(self, state: ConnectionState) -> None:
         """Notify all registered connection callbacks."""
@@ -809,12 +820,12 @@ class ATEMManager:
     @property
     def is_connected(self) -> bool:
         """Check if currently connected to ATEM device."""
-        return self._state == ConnectionState.CONNECTED
+        return self._is_connected
     
     @property
     def connection_state(self) -> ConnectionState:
         """Get current connection state."""
-        return self._state
+        return self._state.state
     
     @property
     def metrics(self) -> ConnectionMetrics:

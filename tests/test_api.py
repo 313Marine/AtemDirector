@@ -10,12 +10,14 @@ from atem_director.config import Settings
 @pytest.fixture
 def test_settings():
     """Create test settings."""
+    from atem_director.config import ATEMConfig, DatabaseConfig, APIConfig, AuthConfig
     return Settings(
         env="test",
         debug=True,
-        database=MagicMock(url="sqlite+aiosqlite:///:memory:"),
-        atem=MagicMock(host="127.0.0.1", port=21124),
-        api=MagicMock(cors_origins=["*"]),
+        atem=ATEMConfig(host="127.0.0.1", port=21124, connection_timeout=1.0),
+        database=DatabaseConfig(url="sqlite+aiosqlite:///:memory:"),
+        api=APIConfig(host="127.0.0.1", port=8001, cors_origins=["*"]),
+        auth=AuthConfig(secret_key="test-secret-key"),
     )
 
 

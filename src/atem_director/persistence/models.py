@@ -116,7 +116,7 @@ class SwitchingEvent(Base):
     hold_duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_success: Mapped[bool] = mapped_column(Boolean, default=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON-serialized
+    event_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON-serialized
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 

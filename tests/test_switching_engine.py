@@ -173,15 +173,17 @@ class TestSafetyRules:
         """Avoids switching to same input unless necessary."""
         # Set current input to 1
         self.engine._current_input = 1
-        
-        # Disable inputs 2, 3, 4
-        for i in range(2, 5):
+
+        # Disable inputs 3 and 4, but leave input 2 enabled.
+        # With another option available, input 1 (current) should be excluded.
+        for i in range(3, 5):
             self.engine._input_states[i].operator_enabled = False
-        
+
         eligible = self.engine._get_eligible_inputs()
-        
-        # Input 1 should be excluded even though it's available
+
+        # Input 1 should be excluded because input 2 is still available
         assert 1 not in eligible
+        assert 2 in eligible
     
     def test_single_input_available_allows_repeat(self):
         """When only one input available, allows repeat."""

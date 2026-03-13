@@ -208,14 +208,88 @@ class StorageManager:
         self,
         session_id: int,
     ) -> Optional[dict]:
-        """Get summary of a session.
-        
-        Args:
-            session_id: Session ID
-            
-        Returns:
-            Session summary dict or None
-        """
-        # This would query the specific session
-        # For now, return None as placeholder
+        """Get summary of a session."""
         return None
+
+    # ------------------------------------------------------------------
+    # Convenience methods used by ApplicationOrchestrator
+    # ------------------------------------------------------------------
+
+    async def load_app_config(self):
+        """Return the AppConfig ORM object (creates default if missing).
+
+        Convenience wrapper so callers can access config fields as
+        attributes rather than dict keys.
+        """
+        return await self.app_config.get_or_create_default()
+
+    async def record_event(
+        self,
+        event_type: str,
+        from_input: Optional[int] = None,
+        to_input: Optional[int] = None,
+        reason: Optional[str] = None,
+        is_success: bool = True,
+        error_message: Optional[str] = None,
+        hold_duration_seconds: Optional[float] = None,
+    ) -> None:
+        """Record a generic switching event.
+
+        Delegates to SwitchingEventRepository and, for 'switch' events,
+        also updates camera and cumulative statistics.
+        """
+        await self.switching_events.create(
+            event_type=event_type,
+            from_input=from_input,
+            to_input=to_input,
+            reason=reason,
+            hold_duration_seconds=hold_duration_seconds,
+            is_success=is_success,
+            error_message=error_message,
+        )
+
+        if event_type == "switch" and from_input is not None and to_input is not None:
+            await self.camera_stats.record_switch(
+                to_input, hold_duration_seconds or 0.0
+            )
+            all_stats = await self.camera_stats.get_all()
+            total_seconds = sum(s.total_program_seconds for s in all_stats)
+            avg_hold = (
+                sum(s.average_hold_seconds for s in all_stats if s.average_hold_seconds)
+                / len(all_stats)
+                if all_stats
+                else 0.0
+            )
+            await self.camera_stats.update_usage_percentages(total_seconds)
+            await self.cumulative_stats.update_from_switch(total_seconds, avg_hold)
+
+    async def get_input_operator_state(self, input_index: int):
+        """Return InputOperatorState for an input (creates default if missing)."""
+        return await self.input_states.get_or_create(input_index)
+
+    async def save_session_summary(
+        self,
+        session_name: str,
+        total_switches: int = 0,
+        total_duration: float = 0.0,
+        auto_switch_enabled: bool = False,
+        average_hold: Optional[float] = None,
+    ) -> None:
+        """Upsert a session summary record."""
+        # Try to update an existing open session; if not found, create a new one.
+        recent = await self.sessions.get_recent(limit=1)
+        if recent and recent[0].session_name == session_name and recent[0].ended_at is None:
+            await self.sessions.end_session(
+                session_id=recent[0].id,
+                total_switches=total_switches,
+                total_duration=total_duration,
+                average_hold=average_hold,
+            )
+        else:
+            await self.sessions.create(
+                session_name=session_name,
+                total_switches=total_switches,
+                total_duration_seconds=total_duration,
+                auto_switch_enabled=auto_switch_enabled,
+                average_hold_seconds=average_hold,
+            )
